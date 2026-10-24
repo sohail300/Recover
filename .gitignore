@@ -13,3 +13,6 @@
 # Release signing - never commit
 /keystore/
 /keystore.properties
+
+# Built release APKs (attached to GitHub Releases instead)
+/release/
