@@ -61,6 +61,8 @@ import com.bytestudio.deletedsaver.R
 import com.bytestudio.deletedsaver.capture.Cleanup
 import com.bytestudio.deletedsaver.capture.MediaBackup
 import com.bytestudio.deletedsaver.capture.WaUsage
+import com.bytestudio.deletedsaver.data.PKG_BUSINESS
+import com.bytestudio.deletedsaver.data.PKG_WHATSAPP
 import com.bytestudio.deletedsaver.data.RawEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -116,6 +118,8 @@ fun SettingsScreen(onBack: () -> Unit) {
 
     var alerts by remember { mutableStateOf(prefs.alerts) }
     var business by remember { mutableStateOf(prefs.business) }
+    var swipeWa by remember { mutableStateOf(prefs.swipeCountsAsDeleted(PKG_WHATSAPP)) }
+    var swipeBiz by remember { mutableStateOf(prefs.swipeCountsAsDeleted(PKG_BUSINESS)) }
     var keepDays by remember { mutableIntStateOf(prefs.keepDeletedDays) }
     var scanning by remember { mutableStateOf(false) }
 
@@ -169,6 +173,18 @@ fun SettingsScreen(onBack: () -> Unit) {
             SectionTitle("Options")
             SwitchRow("Alert when something is deleted", alerts) { alerts = it; prefs.alerts = it }
             SwitchRow("Also capture WhatsApp Business", business) { business = it; prefs.business = it }
+
+            Text("Save swiped notifications as deleted", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Turn on for an app whose notifications only show \"1 new message\" because it is behind an " +
+                    "app lock. Swiping one away then keeps the message you never saw.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            SwitchRow("WhatsApp", swipeWa) { swipeWa = it; prefs.setSwipeCountsAsDeleted(PKG_WHATSAPP, it) }
+            if (business) {
+                SwitchRow("WhatsApp Business", swipeBiz) { swipeBiz = it; prefs.setSwipeCountsAsDeleted(PKG_BUSINESS, it) }
+            }
 
             Text("Keep deleted items for", style = MaterialTheme.typography.bodyLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -29,6 +29,14 @@ class Prefs(context: Context) {
         get() = sp.getLong("last_readable", 0)
         set(v) = sp.edit { putLong("last_readable", v) }
 
+    /**
+     * Whether swiping away [pkg]'s notification saves its messages as deleted. For apps behind an
+     * app lock, where the notification only shows "1 new message" and you never saw the text.
+     */
+    fun swipeCountsAsDeleted(pkg: String): Boolean = sp.getBoolean("swipe_deleted_$pkg", false)
+
+    fun setSwipeCountsAsDeleted(pkg: String, v: Boolean) = sp.edit { putBoolean("swipe_deleted_$pkg", v) }
+
     fun packages(): Set<String> =
         if (business) setOf(PKG_WHATSAPP, PKG_BUSINESS) else setOf(PKG_WHATSAPP)
 }

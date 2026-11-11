@@ -13,6 +13,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -72,33 +73,58 @@ class WaNotificationListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
         if (sbn.packageName !in app.prefs.packages()) return
         if (!firstTime("remove|${sbn.key}|${sbn.postTime}")) return
+        if (sbn.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) {
+            summaryRemovals[sbn.groupKey] = reason to System.currentTimeMillis()
+        }
         scope.launch { runCatching { handleRemoved(sbn, reason) } }
         scheduleScan() // a deleted photo's file disappears around now too
     }
+
+    /** How each group summary was last removed (reason, time): tells a swipe from a WhatsApp cancel. */
+    private val summaryRemovals = ConcurrentHashMap<String, Pair<Int, Long>>()
+
+    private fun summaryReason(groupKey: String): Int? =
+        summaryRemovals[groupKey]?.takeIf { System.currentTimeMillis() - it.second < 3_000 }?.first
 
     /**
      * Newer WhatsApp versions don't post "This message was deleted"; they silently cancel the
      * notification. A cancel by WhatsApp itself while WhatsApp wasn't on screen = deleted.
      */
-    private fun handleRemoved(sbn: StatusBarNotification, reason: Int) {
+    private suspend fun handleRemoved(sbn: StatusBarNotification, reason: Int) {
         val db = app.db
         db.addRaw(sbn.packageName, "REMOVED reason=$reason\n" + NotificationParser.dump(sbn))
-        // WhatsApp cancels the group summary (APP_CANCEL); Android then removes the message
-        // notification under it with GROUP_SUMMARY_CANCELED. Anything else = you swiped/tapped it.
-        if (reason != REASON_APP_CANCEL && reason != REASON_GROUP_SUMMARY_CANCELED) return
         if (sbn.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return
+
+        // Removing the summary takes the message notifications under it along with
+        // GROUP_SUMMARY_CANCELED, whether WhatsApp cancelled the summary or you swiped the bundle.
+        // The summary's own reason says which.
+        var cause = reason
+        if (reason == REASON_GROUP_SUMMARY_CANCELED) {
+            if (summaryReason(sbn.groupKey) == null) delay(200) // in case the summary's event is late
+            cause = summaryReason(sbn.groupKey) ?: REASON_APP_CANCEL
+        }
+        val swiped = cause == REASON_CANCEL || cause == REASON_CANCEL_ALL
+        if (!swiped && cause != REASON_APP_CANCEL) return
 
         // Android strips the message list from removed notifications, so use what we saw when it
         // was posted. Without that (e.g. after a reboot), match the title + last line of text.
         val seen = lastSeen.remove(sbn.key)
-        val access = WaUsage.hasAccess(app)
-        val onScreen = access && WaUsage.wasOnScreen(app, sbn.packageName)
-        db.addRaw(
-            sbn.packageName,
-            "DECISION usageAccess=$access whatsappOnScreen=$onScreen remembered=${seen?.size ?: 0} " +
-                "-> ${if (access && !onScreen) "check for deletion" else "treat as read"}",
-        )
-        if (!access || onScreen) return // can't tell, or you opened the chat
+        if (swiped) {
+            // Normally you saw what you swiped. Behind an app lock you didn't, so keep it.
+            val keep = app.prefs.swipeCountsAsDeleted(sbn.packageName)
+            db.addRaw(sbn.packageName, "DECISION swiped -> ${if (keep) "save as deleted" else "ignore"}")
+            if (!keep) return
+        } else {
+            val access = WaUsage.hasAccess(app)
+            val onScreen = access && WaUsage.wasOnScreen(app, sbn.packageName)
+            val check = access && !onScreen
+            db.addRaw(
+                sbn.packageName,
+                "DECISION usageAccess=$access whatsappOnScreen=$onScreen " +
+                    "remembered=${seen?.size ?: 0} -> ${if (check) "check for deletion" else "treat as read"}",
+            )
+            if (!check) return // can't tell, or you opened the chat
+        }
 
         val now = System.currentTimeMillis()
         if (seen != null) {
