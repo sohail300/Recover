@@ -22,8 +22,8 @@ android {
         // Android 11+: needed for "All files access" to read WhatsApp's media folder.
         minSdk = 30
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     signingConfigs {
