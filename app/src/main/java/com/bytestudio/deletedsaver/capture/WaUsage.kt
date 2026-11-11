@@ -20,6 +20,19 @@ object WaUsage {
         ) == AppOpsManager.MODE_ALLOWED
     }
 
+    /** Times between [from] and [to] when you tapped one of [pkg]'s notifications or its buttons (e.g. "Mark as read"). */
+    fun notificationTaps(context: Context, pkg: String, from: Long, to: Long): List<Long> {
+        val usm = context.getSystemService(UsageStatsManager::class.java)
+        val events = usm.queryEvents(from, to)
+        val e = UsageEvents.Event()
+        val out = ArrayList<Long>()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(e)
+            if (e.packageName == pkg && e.eventType == UsageEvents.Event.USER_INTERACTION) out += e.timeStamp
+        }
+        return out
+    }
+
     /** True if [pkg] is in the foreground now or left it within [withinMs]. */
     fun wasOnScreen(context: Context, pkg: String, withinMs: Long = 15_000): Boolean {
         val usm = context.getSystemService(UsageStatsManager::class.java)

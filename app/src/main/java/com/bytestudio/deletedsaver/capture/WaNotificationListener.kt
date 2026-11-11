@@ -76,7 +76,8 @@ class WaNotificationListener : NotificationListenerService() {
         if (sbn.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) {
             summaryRemovals[sbn.groupKey] = reason to System.currentTimeMillis()
         }
-        scope.launch { runCatching { handleRemoved(sbn, reason) } }
+        val at = System.currentTimeMillis()
+        scope.launch { runCatching { handleRemoved(sbn, reason, at) } }
         scheduleScan() // a deleted photo's file disappears around now too
     }
 
@@ -88,9 +89,10 @@ class WaNotificationListener : NotificationListenerService() {
 
     /**
      * Newer WhatsApp versions don't post "This message was deleted"; they silently cancel the
-     * notification. A cancel by WhatsApp itself while WhatsApp wasn't on screen = deleted.
+     * notification. A cancel by WhatsApp itself, while WhatsApp wasn't on screen and you didn't
+     * tap the notification or one of its buttons = deleted.
      */
-    private suspend fun handleRemoved(sbn: StatusBarNotification, reason: Int) {
+    private suspend fun handleRemoved(sbn: StatusBarNotification, reason: Int, at: Long) {
         val db = app.db
         db.addRaw(sbn.packageName, "REMOVED reason=$reason\n" + NotificationParser.dump(sbn))
         if (sbn.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return
@@ -117,13 +119,15 @@ class WaNotificationListener : NotificationListenerService() {
         } else {
             val access = WaUsage.hasAccess(app)
             val onScreen = access && WaUsage.wasOnScreen(app, sbn.packageName)
-            val check = access && !onScreen
+            // "Mark as read" / reply / tap. Android logs the tap a moment after the cancel.
+            val tapped = access && !onScreen && run { delay(300); wasTapped(sbn, at) }
+            val check = access && !onScreen && !tapped
             db.addRaw(
                 sbn.packageName,
-                "DECISION usageAccess=$access whatsappOnScreen=$onScreen " +
+                "DECISION usageAccess=$access whatsappOnScreen=$onScreen tapped=$tapped " +
                     "remembered=${seen?.size ?: 0} -> ${if (check) "check for deletion" else "treat as read"}",
             )
-            if (!check) return // can't tell, or you opened the chat
+            if (!check) return // can't tell, or you opened the chat / marked it read
         }
 
         val now = System.currentTimeMillis()
@@ -138,6 +142,20 @@ class WaNotificationListener : NotificationListenerService() {
         db.markMessageDeleted(row.id, now)
         if (!row.hidden) Alerts.messageDeleted(app, row)
     }
+
+    /** Which notification each tap was used for (tap time -> notification key). */
+    private val tapUsedFor = object : LinkedHashMap<Long, String>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, String>) = size > 50
+    }
+
+    /**
+     * True if this notification went away because you tapped it or one of its buttons. A tap
+     * removes exactly one chat's notification, so each tap explains only the first removal after
+     * it: a message deleted in another chat moments later is still caught.
+     */
+    private fun wasTapped(sbn: StatusBarNotification, removedAt: Long): Boolean =
+        WaUsage.notificationTaps(app, sbn.packageName, removedAt - 3_000, removedAt + 500)
+            .any { tap -> tapUsedFor.getOrPut(tap) { sbn.key } == sbn.key }
 
     /** Messages last seen in each notification, to spot one vanishing from a repost. */
     private val lastSeen = HashMap<String, List<NotificationParser.Parsed>>()
