@@ -62,6 +62,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "saver.db", null, 3) {
         changed()
     }
 
+    fun hideAllChats() {
+        writableDatabase.execSQL("UPDATE messages SET hidden=1 WHERE hidden=0")
+        changed()
+    }
+
     fun hideMedia(id: Long) {
         writableDatabase.execSQL("UPDATE media SET hidden=1 WHERE id=?", arrayOf<Any>(id))
         changed()

@@ -122,6 +122,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var swipeBiz by remember { mutableStateOf(prefs.swipeCountsAsDeleted(PKG_BUSINESS)) }
     var keepDays by remember { mutableIntStateOf(prefs.keepDeletedDays) }
     var scanning by remember { mutableStateOf(false) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -216,6 +217,19 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                 },
             ) { Text(if (scanning) "Scanning…" else "Scan media now") }
+
+            OutlinedButton(onClick = { confirmDeleteAll = true }) {
+                Text("Delete all chats", color = MaterialTheme.colorScheme.error)
+            }
+            if (confirmDeleteAll) {
+                ConfirmDelete(
+                    title = "Delete all chats?",
+                    text = "Every saved message, including deleted ones, will be removed from this app. " +
+                        "Saved media and WhatsApp itself are not affected. This can't be undone.",
+                    onConfirm = { scope.launch(Dispatchers.IO) { context.app.db.hideAllChats() } },
+                    onDismiss = { confirmDeleteAll = false },
+                )
+            }
 
             Inspector()
         }
